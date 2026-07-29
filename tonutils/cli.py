@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import argparse
 import asyncio
 import os
+import signal
 import typing as t
 from contextlib import suppress
 
@@ -15,6 +18,9 @@ from ton_core import (
 from tonutils.__meta__ import __version__
 from tonutils.tools.status_monitor import DhtMonitor, LiteServerMonitor
 from tonutils.types import DEFAULT_ADNL_RETRY_POLICY
+
+if t.TYPE_CHECKING:
+    from tonutils.tools.status_monitor.base import BaseMonitor
 
 NETWORK_MAP: dict[str, NetworkGlobalID] = {
     "mainnet": NetworkGlobalID.MAINNET,
@@ -65,6 +71,33 @@ def cmd_status(args: argparse.Namespace) -> None:
         _run_ls_monitor(args)
 
 
+async def _serve(build: t.Callable[[], BaseMonitor[t.Any, t.Any]]) -> None:
+    """Run a monitor until it is stopped.
+
+    ``Ctrl+C`` is handled through the event loop, a second one aborts.
+
+    :param build: Monitor factory, called inside the running loop.
+    """
+    loop = asyncio.get_running_loop()
+    monitor = build()
+
+    def _on_sigint() -> None:
+        """Ask the monitor to shut down gracefully."""
+        with suppress(NotImplementedError):
+            loop.remove_signal_handler(signal.SIGINT)
+        monitor.request_stop()
+
+    with suppress(NotImplementedError):
+        loop.add_signal_handler(signal.SIGINT, _on_sigint)
+
+    try:
+        await monitor.run()
+    finally:
+        with suppress(NotImplementedError):
+            loop.remove_signal_handler(signal.SIGINT)
+        await monitor.stop()
+
+
 def _run_ls_monitor(args: argparse.Namespace) -> None:
     """Run the LiteServer status monitor.
 
@@ -72,20 +105,17 @@ def _run_ls_monitor(args: argparse.Namespace) -> None:
     """
     config = _load_config(args)
 
-    async def _run() -> None:
-        monitor = LiteServerMonitor.from_config(
+    def _build() -> LiteServerMonitor:
+        """Create the monitor inside the running loop."""
+        return LiteServerMonitor.from_config(
             config=config,
             network=args.network,
             rps_limit=args.rps,
             retry_policy=DEFAULT_ADNL_RETRY_POLICY if args.retry else None,
         )
-        try:
-            await monitor.run()
-        finally:
-            await monitor.stop()
 
     with suppress(KeyboardInterrupt):
-        asyncio.run(_run())
+        asyncio.run(_serve(_build))
 
 
 def _run_dht_monitor(args: argparse.Namespace) -> None:
@@ -95,15 +125,8 @@ def _run_dht_monitor(args: argparse.Namespace) -> None:
     """
     config = _load_config(args)
 
-    async def _run() -> None:
-        monitor = DhtMonitor.from_config(config=config)
-        try:
-            await monitor.run()
-        finally:
-            await monitor.stop()
-
     with suppress(KeyboardInterrupt):
-        asyncio.run(_run())
+        asyncio.run(_serve(lambda: DhtMonitor.from_config(config=config)))
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:

@@ -50,6 +50,7 @@ class BaseMonitor(abc.ABC, t.Generic[_C, _S]):
 
         self._tasks: list[asyncio.Task[None]] = []
         self._stop = asyncio.Event()
+        self._closed = False
 
         self._locks: dict[int, asyncio.Lock] = {}
 
@@ -71,10 +72,15 @@ class BaseMonitor(abc.ABC, t.Generic[_C, _S]):
         finally:
             self._console.exit()
 
+    def request_stop(self) -> None:
+        """Signal the render loop to exit; cleanup happens in ``stop``."""
+        self._stop.set()
+
     async def stop(self) -> None:
         """Stop all update tasks and close clients."""
-        if self._stop.is_set():
+        if self._closed:
             return
+        self._closed = True
         self._stop.set()
 
         for task in self._tasks:
@@ -105,8 +111,8 @@ class BaseMonitor(abc.ABC, t.Generic[_C, _S]):
             return True
 
         now = time.monotonic()
-        last_attempt = self._last_connect.get(index, 0.0)
-        if now - last_attempt < self.RECONNECT_INTERVAL:
+        last_attempt = self._last_connect.get(index)
+        if last_attempt is not None and now - last_attempt < self.RECONNECT_INTERVAL:
             return False
 
         self._last_connect[index] = now
