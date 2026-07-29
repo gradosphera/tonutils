@@ -5,9 +5,14 @@ import typing as t
 from abc import ABC, abstractmethod
 from contextlib import suppress
 
+from tonutils.exceptions import NotConnectedError, TransportError
+
 
 class BaseWorker(ABC):
     """Base class for background workers used by ADNL providers."""
+
+    RETRY_DELAY = 1.0
+    """Seconds to wait before re-entering ``_run`` after a connection loss."""
 
     def __init__(self, provider: t.Any) -> None:
         """Initialize the worker.
@@ -55,9 +60,17 @@ class BaseWorker(ABC):
             await task
 
     async def _run_wrapper(self) -> None:
-        """Run ``_run`` with lifecycle management and exception suppression."""
+        """Run ``_run`` with lifecycle management and exception suppression.
+
+        A lost connection is not fatal: wait and re-enter ``_run``.
+        """
         try:
-            await self._run()
+            while self._running:
+                try:
+                    await self._run()
+                    return
+                except (NotConnectedError, TransportError, OSError):  # noqa: PERF203
+                    await asyncio.sleep(self.RETRY_DELAY)
         except asyncio.CancelledError:
             pass
         finally:

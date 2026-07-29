@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import typing as t
 
+from tonutils.exceptions import ProviderError
 from tonutils.transports.worker import BaseWorker
 from tonutils.types import MasterchainInfo
 
@@ -50,12 +51,12 @@ class UpdaterWorker(BaseWorker):
                 last_mc_block = self._last_mc_block
                 raw = await provider.wait_masterchain_seqno(
                     seqno=last_mc_block.seqno + 1,
-                    timeout_ms=10_000,
+                    timeout_ms=5_000,
                     schema_name="getMasterchainInfo",
                     priority=True,
                 )
                 info = MasterchainInfo.from_dict(raw)
                 self._last_mc_block = info.last_block()
 
-            except asyncio.TimeoutError:
+            except (ProviderError, asyncio.TimeoutError):
                 continue
