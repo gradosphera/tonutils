@@ -287,8 +287,8 @@ class DhtNetwork:
     ) -> int:
         """Store a value on K closest nodes.
 
-        Go parity: ``checked`` set, rebuild plist each iteration,
-        expansion via affinity comparison.
+        Each round rebuilds the priority list and queries only nodes not
+        checked yet, stopping once no closer node appears.
         """
         if not self.connected:
             raise NotConnectedError(component="DhtNetwork", operation="store")

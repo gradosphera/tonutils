@@ -22,6 +22,9 @@ from tonutils.clients.dht.models import (
 
 __all__ = ["DhtCodec"]
 
+_SIGNATURE_SIZE = 64
+"""Size of a bare Ed25519 signature."""
+
 
 class DhtCodec:
     """Encodes/decodes DHT protocol messages and verifies signatures.
@@ -47,7 +50,6 @@ class DhtCodec:
         self._s_ping: TlSchema = _s("dht.ping")
         self._s_get_sal: TlSchema = _s("dht.getSignedAddressList")
         self._s_node: TlSchema = _s("dht.node")
-        self._s_key: TlSchema = _s("dht.key")
         self._s_key_desc: TlSchema = _s("dht.keyDescription")
         self._s_value: TlSchema = _s("dht.value")
         self._s_addr_list: TlSchema = _s("adnl.addressList")
@@ -99,7 +101,7 @@ class DhtCodec:
             if not pub_key or len(pub_key) != 32:
                 return None
 
-            signature = _tl_bytes(node_tl.get("signature", b""))
+            signature = _split_node_signature(node_tl.get("signature", b""))
             if not signature:
                 return None
 
@@ -171,7 +173,7 @@ class DhtCodec:
         return []
 
     def verify_value(self, dht_value: DhtValue, requested_key: bytes) -> bool:
-        """Verify DHT value integrity (Go ``checkValue`` parity).
+        """Verify DHT value integrity.
 
         4-layer validation:
         1. Key name length (1..127), index (0..15).
@@ -188,18 +190,12 @@ class DhtCodec:
             if not (0 <= k.idx <= 15):
                 return False
 
-            tl_key_schema = self._s_key
-            tl_key = self.tl.serialize(
-                tl_key_schema,
-                {"id": k.id.hex(), "name": k.name, "idx": k.idx},
-            )
-            if hashlib.sha256(tl_key).digest() != requested_key:
+            if k.key_id != requested_key:
                 return False
 
             if kd.update_rule == DhtUpdateRule.OVERLAY_NODES:
                 # Skip id_public_key == key.id check: KeyDescription.ID is
-                # pub.overlay, but compute_key_id uses pub.ed25519 TL prefix.
-                # Go's tl.Hash is polymorphic; Python's is not.
+                # pub.overlay, while compute_key_id hashes a pub.ed25519 prefix.
                 self._verify_overlay_nodes(dht_value)
             else:
                 if not kd.id_public_key:
@@ -276,7 +272,7 @@ class DhtCodec:
         key_hash = self.compute_overlay_key_hash(overlay_key)
         dht_key = DhtKey(id=key_hash, name=b"nodes", idx=0)
 
-        id_tl: dict[str, t.Any] = {"@type": "pub.overlay", "name": overlay_key.hex()}
+        id_tl: dict[str, t.Any] = {"@type": "pub.overlay", "name": overlay_key}
         key_tl: dict[str, t.Any] = {
             "id": dht_key.id.hex(),
             "name": dht_key.name,
@@ -305,7 +301,7 @@ class DhtCodec:
     def compute_overlay_key_hash(self, overlay_key: bytes) -> bytes:
         """Compute ``SHA-256(TL(pub.overlay))`` for DHT overlay lookup."""
         schema = self._s_pub_overlay
-        overlay_tl = self.tl.serialize(schema, {"name": overlay_key.hex()})
+        overlay_tl = self.tl.serialize(schema, {"name": overlay_key})
         return hashlib.sha256(overlay_tl).digest()
 
     def parse_address_list(
@@ -342,8 +338,8 @@ class DhtCodec:
     def _verify_signatures(self, dht_value: DhtValue) -> None:
         """Verify Ed25519 signatures on value and key description.
 
-        Go parity: ``valueCopy.Signature = nil`` then verify value,
-        then ``valueCopy.KeyDescription.Signature = nil`` then verify key desc.
+        Each signature covers its own structure serialized with the
+        signature field blanked out.
         """
         kd = dht_value.key_description
         pub_key = kd.id_public_key
@@ -389,8 +385,11 @@ class DhtCodec:
     def _verify_overlay_nodes(self, dht_value: DhtValue) -> None:
         """Verify overlay node signatures.
 
+        Every node must belong to the overlay the value is stored under.
+
         TL schema: ``overlay.node.toSign id:adnl.id.short overlay:int256 version:int``
         """
+        expected_overlay = dht_value.key_description.key.id
         value = dht_value.value
         if isinstance(value, bytes):
             parsed = self.tl.deserialize(value, boxed=True)
@@ -406,9 +405,9 @@ class DhtCodec:
 
         schema = self._s_overlay_to_sign
         for node_data in nodes:
-            overlay = node_data.get("overlay", b"")
-            if isinstance(overlay, str):
-                overlay = bytes.fromhex(overlay)
+            overlay = _tl_bytes(node_data.get("overlay", b""))
+            if overlay != expected_overlay:
+                raise ValueError("overlay node belongs to another overlay")
 
             id_data = node_data.get("id", {})
             pub_key_raw = id_data.get("key", b"")
@@ -417,7 +416,7 @@ class DhtCodec:
             if not pub_key_raw:
                 raise ValueError("overlay node missing public key")
 
-            signature = _tl_bytes(node_data.get("signature", b""))
+            signature = _split_node_signature(node_data.get("signature", b""))
             if not signature:
                 raise ValueError("overlay node missing signature")
 
@@ -476,3 +475,20 @@ def _tl_bytes(v: t.Any) -> bytes:
     if isinstance(v, str):
         return bytes.fromhex(v)
     return v if isinstance(v, bytes) else b""
+
+
+def _split_node_signature(v: t.Any) -> bytes:
+    """Strip the optional network ID prefix from a node signature.
+
+    A node signature is either a bare Ed25519 signature or the same
+    signature prefixed with a little-endian network ID.
+
+    :param v: Raw TL signature field.
+    :return: 64-byte signature, or ``b""`` if the length is invalid.
+    """
+    signature = _tl_bytes(v)
+    if len(signature) == _SIGNATURE_SIZE:
+        return signature
+    if len(signature) == _SIGNATURE_SIZE + 4:
+        return signature[4:]
+    return b""

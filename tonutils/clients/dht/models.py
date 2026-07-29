@@ -289,7 +289,7 @@ class PriorityList:
     def add(self, node: DhtNode) -> bool:
         """Add a node if it improves the list.
 
-        Go parity: only resets ``used`` if priority actually improved.
+        The ``used`` flag is reset only when affinity actually improved.
         """
         node_id = node.id
         node_aff = affinity(node.adnl_id, self._target_id)
@@ -335,7 +335,7 @@ class PriorityList:
         return affinity(self._nodes[0].adnl_id, self._target_id)
 
     def mark_used(self, node: DhtNode, used: bool) -> None:
-        """Go parity: ``MarkUsed`` calls ``Add`` first."""
+        """Set the ``used`` flag for a node, adding it if absent."""
         self.add(node)
         node_id = node.id
         if node_id in self._used:
