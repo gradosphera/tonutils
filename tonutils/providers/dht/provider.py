@@ -55,6 +55,7 @@ class DhtProvider:
         self._reader = DhtReaderWorker(self)
 
         self._pending: dict[str, asyncio.Future[t.Any]] = {}
+        self._channel_locks: dict[str, asyncio.Lock] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
 
         self._connected = False
@@ -136,53 +137,22 @@ class DhtProvider:
         :param node: DHT node configuration.
         :return: ``(adnl_id, DhtNode)`` on success, ``None`` on failure.
         """
+        from tonutils.clients.dht.models import DhtNode as _DhtNode
+        from tonutils.clients.dht.models import compute_key_id
+
+        adnl_id = compute_key_id(node.pub_key)
+        dht_node = _DhtNode(
+            adnl_id=adnl_id,
+            addr=f"{node.host}:{node.port}",
+            server_key=node.pub_key,
+        )
+
         try:
-            from tonutils.clients.dht.models import DhtNode as _DhtNode
-            from tonutils.clients.dht.models import compute_key_id
-
-            host = node.host
-            port = node.port
-            pub_key = node.pub_key
-            adnl_id = compute_key_id(pub_key)
-
-            dht_node = _DhtNode(
-                adnl_id=adnl_id,
-                addr=f"{host}:{port}",
-                server_key=pub_key,
-            )
-
-            query_payload = self._codec.serialize_get_signed_address_list()
-            query_id = get_random(32)
-            query_msg: dict[str, t.Any] = {
-                "@type": "adnl.message.query",
-                "query_id": query_id.hex(),
-                "query": query_payload,
-            }
-
-            query_fut: asyncio.Future[t.Any] = asyncio.get_running_loop().create_future()
-            self._pending[query_id.hex()] = query_fut
-
-            try:
-                await asyncio.wait_for(
-                    self._transport.establish_channel(
-                        host=host,
-                        port=port,
-                        pub_key=pub_key,
-                        extra_messages=[query_msg],
-                        timeout=self._connect_timeout,
-                    ),
-                    timeout=self._connect_timeout + 1.0,
-                )
-                await asyncio.wait_for(query_fut, timeout=self._request_timeout)
-            finally:
-                query_id_hex = query_id.hex()
-                if query_id_hex in self._pending:
-                    del self._pending[query_id_hex]
-
-            return adnl_id, dht_node
-
+            await self.ensure_channel(dht_node)
         except (OSError, TransportError, ProviderError, asyncio.TimeoutError):
             return None
+
+        return adnl_id, dht_node
 
     async def close(self) -> None:
         """Stop reader, cancel pending queries, and close transport."""
@@ -193,6 +163,7 @@ class DhtProvider:
             if not fut.done():
                 fut.cancel()
         self._pending.clear()
+        self._channel_locks.clear()
 
         await self._transport.close()
         self._loop = None
@@ -203,6 +174,8 @@ class DhtProvider:
         Bundles a ``getSignedAddressList`` query in the init packet —
         ADNL-UDP servers require at least one query alongside
         ``createChannel`` to respond with ``confirmChannel``.
+
+        Serialized per node, so concurrent queries share one handshake.
         """
         if self._loop is None:
             raise NotConnectedError(
@@ -210,43 +183,46 @@ class DhtProvider:
                 operation="ensure_channel",
             )
 
-        peer = self._transport.get_peer(dht_node.addr)
-        if peer is not None and peer.channel is not None:
-            return
+        lock = self._channel_locks.setdefault(dht_node.addr, asyncio.Lock())
 
-        host, port_str = dht_node.addr.split(":")
-        port = int(port_str)
+        async with lock:
+            peer = self._transport.get_peer(dht_node.addr)
+            if peer is not None and peer.channel is not None:
+                return
 
-        query_id = get_random(32)
-        query_payload = self._codec.serialize_get_signed_address_list()
-        query_msg: dict[str, t.Any] = {
-            "@type": "adnl.message.query",
-            "query_id": query_id.hex(),
-            "query": query_payload,
-        }
+            host, port_str = dht_node.addr.split(":")
+            port = int(port_str)
 
-        query_fut: asyncio.Future[t.Any] = self._loop.create_future()
-        self._pending[query_id.hex()] = query_fut
+            query_id = get_random(32)
+            query_payload = self._codec.serialize_get_signed_address_list()
+            query_msg: dict[str, t.Any] = {
+                "@type": "adnl.message.query",
+                "query_id": query_id.hex(),
+                "query": query_payload,
+            }
 
-        try:
-            await self._transport.establish_channel(
-                host=host,
-                port=port,
-                pub_key=dht_node.server_key,
-                extra_messages=[query_msg],
-                timeout=self._connect_timeout,
-            )
-            await asyncio.wait_for(query_fut, timeout=self._request_timeout)
-        finally:
-            query_id_hex = query_id.hex()
-            if query_id_hex in self._pending:
-                del self._pending[query_id_hex]
+            query_fut: asyncio.Future[t.Any] = self._loop.create_future()
+            self._pending[query_id.hex()] = query_fut
+
+            try:
+                await self._transport.establish_channel(
+                    host=host,
+                    port=port,
+                    pub_key=dht_node.server_key,
+                    extra_messages=[query_msg],
+                    timeout=self._connect_timeout,
+                )
+                await asyncio.wait_for(query_fut, timeout=self._request_timeout)
+            finally:
+                query_id_hex = query_id.hex()
+                if query_id_hex in self._pending:
+                    del self._pending[query_id_hex]
 
     async def _reinit_node(self, dht_node: DhtNode) -> None:
         """Reset channel for a degraded node.
 
-        Go parity: ``peer.Reinit()`` called when ``inFlyQueries == 0``
-        and ``badScore > 1``.
+        Called once no queries are in flight, so the next request
+        starts from a fresh handshake.
         """
         peer = self._transport.get_peer(dht_node.addr)
         if peer is not None:
