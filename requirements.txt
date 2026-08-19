@@ -1,2 +1,2 @@
 aiohttp>=3.9.0
-ton-core>=0.3.6
+ton-core>=0.4.0

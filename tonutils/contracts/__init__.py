@@ -41,6 +41,13 @@ from .nft import (
     royalty_params_get_method,
 )
 from .protocol import ContractProtocol
+from .storage import (
+    StorageContract,
+    get_available_balance_get_method,
+    get_provider_info_get_method,
+    get_providers_get_method,
+    get_storage_info_get_method,
+)
 from .telegram import (
     BaseTeleCollection,
     BaseTeleItem,
@@ -125,6 +132,7 @@ __all__ = [
     "NFTItemStandard",
     "NFTTransferBuilder",
     "SeqnoGuard",
+    "StorageContract",
     "TONDNSCollection",
     "TONDNSItem",
     "TONTransferBuilder",
@@ -155,6 +163,7 @@ __all__ = [
     "dnsresolve_get_method",
     "get_auction_info_get_method",
     "get_authority_address_get_method",
+    "get_available_balance_get_method",
     "get_collection_data_get_method",
     "get_domain_get_method",
     "get_editor_get_method",
@@ -168,10 +177,13 @@ __all__ = [
     "get_nft_content_get_method",
     "get_nft_data_get_method",
     "get_plugin_list_get_method",
+    "get_provider_info_get_method",
+    "get_providers_get_method",
     "get_public_key_get_method",
     "get_revoked_time_get_method",
     "get_second_owner_address_get_method",
     "get_status_get_method",
+    "get_storage_info_get_method",
     "get_subwallet_id_get_method",
     "get_telemint_auction_config_get_method",
     "get_telemint_auction_state_get_method",
