@@ -191,13 +191,10 @@ class _WalletV5(
             )
             for msg in estimate_result.messages
         ]
-        params = t.cast(
-            "_P",
-            self._params_model(
-                seqno=seqno,
-                valid_until=estimate_result.valid_until,
-                op_code=OpCode.AUTH_SIGNED_INTERNAL,
-            ),
+        params = self._params_model(
+            seqno=seqno,
+            valid_until=estimate_result.valid_until,
+            op_code=OpCode.AUTH_SIGNED_INTERNAL,
         )
         return await self.build_external_message(estimated_messages, params)
 
