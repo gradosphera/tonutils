@@ -3,9 +3,16 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from ton_core import Address, PrivateKey, PublicKey
+from ton_core import (
+    WALLET_TG_SUBWALLET_ID,
+    WALLET_TG_SUBWALLET_ID_TESTNET,
+    Address,
+    NetworkGlobalID,
+    PrivateKey,
+    PublicKey,
+)
 
-from tonutils.contracts.wallet import WalletV3R2, WalletV4R1, WalletV4R2
+from tonutils.contracts.wallet import WalletTg, WalletV3R2, WalletV4R1, WalletV4R2
 from tonutils.exceptions import ContractError
 
 mock_client = MagicMock()
@@ -61,9 +68,11 @@ class TestDifferentVersions:
         w_v3, _, _, _ = WalletV3R2.from_mnemonic(mock_client, mnemonic)
         w_v4r1, _, _, _ = WalletV4R1.from_mnemonic(mock_client, mnemonic)
         w_v4r2, _, _, _ = WalletV4R2.from_mnemonic(mock_client, mnemonic)
+        w_tg, _, _, _ = WalletTg.from_mnemonic(mock_client, mnemonic)
         assert w_v3.address != w_v4r1.address
         assert w_v3.address != w_v4r2.address
         assert w_v4r1.address != w_v4r2.address
+        assert w_tg.address != w_v4r2.address
 
 
 class TestFromPrivateKey:
@@ -77,3 +86,15 @@ class TestFromPrivateKey:
         _, pub, priv, _ = WalletV4R2.create(mock_client)
         wallet = WalletV4R2.from_private_key(mock_client, priv)
         assert wallet._private_key.public_key == pub
+
+
+class TestWalletTg:
+    def test_subwallet_id_defaults_to_mainnet(self):
+        wallet = WalletTg.from_private_key(mock_client, PrivateKey(bytes(32)))
+        assert wallet.config.subwallet_id == WALLET_TG_SUBWALLET_ID
+
+    def test_subwallet_id_on_testnet(self):
+        testnet_client = MagicMock()
+        testnet_client.network = NetworkGlobalID.TESTNET
+        wallet = WalletTg.from_private_key(testnet_client, PrivateKey(bytes(32)))
+        assert wallet.config.subwallet_id == WALLET_TG_SUBWALLET_ID_TESTNET

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from ton_core import Cell, PublicKey
+from ton_core import WALLET_TG_SUBWALLET_ID, Cell, PublicKey
 
 from tests.constants import (
     HIGHLOAD_V3R1_ADDRESS,
     WALLET_ADDRESS,
+    WALLET_TG_ADDRESS,
     WALLET_V4R2_ADDRESS,
     WALLET_V5R1_ADDRESS,
 )
@@ -16,6 +17,7 @@ from tonutils.contracts.wallet import (
     get_subwallet_id_get_method,
     get_timeout_get_method,
     is_signature_allowed_get_method,
+    revision_get_method,
     seqno_get_method,
 )
 
@@ -75,3 +77,29 @@ class TestHighloadGetTimeout:
         result = await get_timeout_get_method(client, HIGHLOAD_V3R1_ADDRESS)
         assert isinstance(result, int)
         assert result > 0
+
+
+class TestWalletTgSeqno:
+    async def test_returns_positive_int(self, client):
+        result = await seqno_get_method(client, WALLET_TG_ADDRESS)
+        assert isinstance(result, int)
+        assert result > 0
+
+
+class TestWalletTgRevision:
+    async def test_returns_non_negative_int(self, client):
+        result = await revision_get_method(client, WALLET_TG_ADDRESS)
+        assert isinstance(result, int)
+        assert result >= 0
+
+
+class TestWalletTgGetSubwalletId:
+    async def test_returns_mainnet_subwallet(self, client):
+        result = await get_subwallet_id_get_method(client, WALLET_TG_ADDRESS)
+        assert result == WALLET_TG_SUBWALLET_ID
+
+
+class TestWalletTgGetPublicKey:
+    async def test_returns_public_key(self, client):
+        result = await get_public_key_get_method(client, WALLET_TG_ADDRESS)
+        assert isinstance(result, PublicKey)

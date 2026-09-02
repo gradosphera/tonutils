@@ -13,6 +13,7 @@ from ton_core import (
     # WalletHighloadV2Config,
     # WalletHighloadV3Config,
     # WalletPreprocessedV2Config,
+    # WalletTgConfig,
 )
 
 from tonutils.clients import ToncenterClient
@@ -31,6 +32,7 @@ from tonutils.contracts import (
     # WalletHighloadV2,
     # WalletHighloadV3R1,
     # WalletPreprocessedV2,
+    # WalletTg,
 )
 
 

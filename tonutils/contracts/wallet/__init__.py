@@ -21,6 +21,7 @@ from .methods import (
     is_plugin_installed_get_method,
     is_signature_allowed_get_method,
     processed_get_method,
+    revision_get_method,
     seqno_get_method,
 )
 from .protocol import WalletProtocol
@@ -28,6 +29,7 @@ from .versions import (
     WalletHighloadV2,
     WalletHighloadV3R1,
     WalletPreprocessedV2,
+    WalletTg,
     WalletV1R1,
     WalletV1R2,
     WalletV1R3,
@@ -55,6 +57,7 @@ __all__ = [
     "WalletHighloadV3R1",
     "WalletPreprocessedV2",
     "WalletProtocol",
+    "WalletTg",
     "WalletV1R1",
     "WalletV1R2",
     "WalletV1R3",
@@ -75,5 +78,6 @@ __all__ = [
     "is_plugin_installed_get_method",
     "is_signature_allowed_get_method",
     "processed_get_method",
+    "revision_get_method",
     "seqno_get_method",
 ]

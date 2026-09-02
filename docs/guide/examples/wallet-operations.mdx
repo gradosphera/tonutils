@@ -11,6 +11,7 @@ This section provides a complete guide to managing wallets using the `tonutils` 
 - Sending transactions (TON, NFTs, jettons)
 - Performing batch and sequential transfers
 - Sending gasless (relayed) jetton transfers
+- Rotating the signing key of a Telegram wallet (WalletTg)
 - Encrypting and decrypting on-chain messages
 
 ## Supported Wallets
@@ -33,6 +34,7 @@ The library supports multiple wallet versions and types, all importable from `to
 | `WalletHighloadV2` | Highload | 254 | — |
 | `WalletHighloadV3R1` | Highload | 64516 (254 × 254) | Services and exchanges |
 | `WalletPreprocessedV2` | Preprocessed | 255 | Large-scale batch transfers where gas optimization is critical |
+| `WalletTg` | Telegram | 255 | Telegram-created wallets with on-chain signing-key rotation |
 
 ## Create Wallet
 
@@ -618,6 +620,94 @@ A Tonapi API key is required — get one at [tonconsole.com](https://tonconsole.
 </Note>
 
 The same flow is also available as a standalone recipe: [Send Gasless Transaction](/how-to/send-gasless-transaction).
+
+## Telegram Wallet (WalletTg)
+
+`WalletTg` is the wallet contract used by Telegram. Its account code is a small immutable trampoline that runs shared logic stored in the blockchain config, so every `WalletTg` uses the same latest contract version, updated by validator voting. It supports up to 255 messages per transaction and adds one capability the standard wallets do not have: rotating its signing key on-chain. Its default `subwallet_id` is network-specific and resolved automatically from the client's network.
+
+### Rotate Signing Key
+
+`change_public_key_from_mnemonic()` replaces the wallet's on-chain signing key. The request is signed twice — by the current key, which authorizes the change, and by the new key, which proves ownership of the key being installed. The wallet **address does not change**: the balance and history stay in place, only the key that controls them changes.
+
+```python
+from ton_core import NetworkGlobalID
+
+from tonutils.clients import ToncenterClient
+from tonutils.contracts import WalletTg
+
+# Current mnemonic controlling the wallet
+MNEMONIC = "word1 word2 word3 ..."
+
+# New mnemonic to rotate the signing key to
+NEW_MNEMONIC = "word1 word2 word3 ..."
+
+
+async def main() -> None:
+    client = ToncenterClient(network=NetworkGlobalID.MAINNET)
+    await client.connect()
+
+    # Open the wallet with its current mnemonic
+    wallet, _, _, _ = WalletTg.from_mnemonic(client, MNEMONIC)
+
+    # Rotate the signing key to NEW_MNEMONIC
+    # Returns: (external_message, public_key, private_key, mnemonic)
+    msg, _, _, _ = await wallet.change_public_key_from_mnemonic(NEW_MNEMONIC)
+
+    print(f"Transaction hash: {msg.normalized_hash}")
+
+    await client.close()
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(main())
+```
+
+<Warning>
+After the rotation is accepted on-chain, the old mnemonic no longer controls the wallet. Reopen it with the new mnemonic using `from_address_and_mnemonic()` — `from_mnemonic()` would derive a different, empty address.
+</Warning>
+
+### Open by Address
+
+After a key rotation, the wallet's address no longer derives from its mnemonic. Open it by its known address instead: `from_address_and_mnemonic()` binds the current key to the address and verifies the key actually controls it.
+
+```python
+from ton_core import Address, NetworkGlobalID
+
+from tonutils.clients import ToncenterClient
+from tonutils.contracts import WalletTg
+
+# Address of the existing wallet to open
+WALLET_ADDRESS = Address("UQ...")
+
+# Current mnemonic controlling that wallet
+MNEMONIC = "word1 word2 word3 ..."
+
+
+async def main() -> None:
+    client = ToncenterClient(network=NetworkGlobalID.MAINNET)
+    await client.connect()
+
+    # Open the wallet by address with the current mnemonic
+    # Verifies the key controls the address before returning
+    # Returns: (wallet, public_key, private_key, mnemonic)
+    wallet, _, _, _ = await WalletTg.from_address_and_mnemonic(client, WALLET_ADDRESS, MNEMONIC)
+
+    print(f"Wallet address: {wallet.address.to_str(is_bounceable=False)}")
+
+    await client.close()
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(main())
+```
+
+<Note>
+`from_address_and_private_key()` is the private-key equivalent of `from_address_and_mnemonic()`, and `change_public_key()` rotates to a `PrivateKey` directly instead of a mnemonic.
+</Note>
 
 ## Encrypted Messages
 

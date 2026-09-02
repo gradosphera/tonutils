@@ -322,3 +322,31 @@ class GetTimeoutGetMethod(ContractProtocol[t.Any]):
             client=self.client,
             address=self.address,
         )
+
+
+async def revision_get_method(
+    client: ClientProtocol,
+    address: AddressLike,
+) -> int:
+    """Call ``revision`` on a Telegram wallet contract.
+
+    :param client: TON client.
+    :param address: Wallet contract address.
+    :return: Current storage revision.
+    """
+    r = await client.run_get_method(
+        address=address,
+        method_name="revision",
+    )
+    return int(r[0])
+
+
+class RevisionGetMethod(ContractProtocol[t.Any]):
+    """Mixin for the ``revision`` get-method."""
+
+    async def revision(self) -> int:
+        """Return current storage revision."""
+        return await revision_get_method(
+            client=self.client,
+            address=self.address,
+        )

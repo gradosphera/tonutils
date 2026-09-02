@@ -1,5 +1,6 @@
 from .hw import WalletHighloadV2, WalletHighloadV3R1
 from .pp import WalletPreprocessedV2
+from .tg import WalletTg
 from .v1 import WalletV1R1, WalletV1R2, WalletV1R3
 from .v2 import WalletV2R1, WalletV2R2
 from .v3 import WalletV3R1, WalletV3R2
@@ -10,6 +11,7 @@ __all__ = [
     "WalletHighloadV2",
     "WalletHighloadV3R1",
     "WalletPreprocessedV2",
+    "WalletTg",
     "WalletV1R1",
     "WalletV1R2",
     "WalletV1R3",
